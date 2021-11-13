@@ -273,10 +273,16 @@ impl pallet_sudo::Config for Runtime {
 	type Call = Call;
 }
 
+parameter_types! {
+	pub const MaxKittyOwened:u32 = 9999;
+}
+
 /// Configure the pallet-kitty in pallets/kitty.
 impl pallet_kitties::Config for Runtime {
 	type Event = Event;
 	type Currency = Balances;
+	type KittyRandomness = RandomnessCollectiveFlip;
+	type MaxKittyOwened = MaxKittyOwened;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

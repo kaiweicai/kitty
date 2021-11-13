@@ -4,12 +4,18 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{Parameter, RuntimeDebug, dispatch::{DispatchResult, DispatchResultWithPostInfo}, pallet_prelude::{ Member, StorageValue, ValueQuery}, sp_runtime::traits::{Hash, Zero}, traits::{Currency, ExistenceRequirement, IsType, Randomness, tokens::Balance}};
+	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use frame_support::{
+		sp_runtime::traits::Hash,
+		traits::{ Randomness, Currency, tokens::ExistenceRequirement },
+		transactional
+	};
+	use sp_io::hashing::blake2_128;
 	use scale_info::TypeInfo;
-use sp_io::hashing::blake2_128;
-use serde::{Deserialize,Serialize};
+
+	#[cfg(feature = "std")]
+	use frame_support::serde::{Deserialize, Serialize};
 
     type AccountOf<T> = <T as frame_system::Config>::AccountId;
     type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -55,6 +61,9 @@ use serde::{Deserialize,Serialize};
 		type Currency: Currency<Self::AccountId>;
 
         type KittyRandomness:Randomness<Self::Hash,Self::BlockNumber>;
+
+		#[pallet::constant]
+		type MaxKittyOwened:Get<u32>;
 	}
 
 	#[pallet::error]
@@ -74,6 +83,14 @@ use serde::{Deserialize,Serialize};
 	pub(super) type KittyCnt<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	// TODO Part II: Remaining storage items.
+	#[pallet::storage]
+	#[pallet::getter(fn kitties)]
+	pub(super) type Kitties<T:Config> = StorageMap<_,Twox64Concat,T::Hash,Kitty<T>>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn kitties_owned)]
+	pub(super) type OwnerKitties<T:Config> = StorageMap<_,Twox64Concat,T::AccountId,BoundedVec<T::Hash,T::MaxKittyOwened>,ValueQuery>;
+	/// Keeps track of what accounts own what Kitty.
 
 	// TODO Part III: Our pallet's genesis configuration.
 
@@ -105,6 +122,13 @@ use serde::{Deserialize,Serialize};
         // TODO Part III: helper functions for dispatchable functions
 
         // ACTION #6: funtion to randomly generate DNA
+		fn gen_dna()->[u8;16]{
+			let payload = (
+				T::KittyRandomness::random(b"dna").0,
+				<frame_system::Pallet<T>>::block_number(),
+			);
+			payload.using_encoded(blake2_128)
+		}
 
         // TODO Part III: mint
 
