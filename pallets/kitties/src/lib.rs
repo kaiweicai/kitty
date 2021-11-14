@@ -11,17 +11,18 @@ pub mod pallet {
 		traits::{ Randomness, Currency, tokens::ExistenceRequirement },
 		transactional
 	};
-	use sp_io::hashing::blake2_128;
 	use scale_info::TypeInfo;
+	use codec::{Encode, Decode, MaxEncodedLen};
 
 	#[cfg(feature = "std")]
 	use frame_support::serde::{Deserialize, Serialize};
+	use sp_core::blake2_128;
 
     type AccountOf<T> = <T as frame_system::Config>::AccountId;
     type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 	// TODO Part II: Struct for holding Kitty information.
     
-    #[derive(Clone,Encode,Decode,PartialEq,RuntimeDebug,TypeInfo)]
+    #[derive(Clone,Encode,Decode,PartialEq,RuntimeDebug,TypeInfo,MaxEncodedLen)]
     #[scale_info(skip_type_params(T))]
     pub struct Kitty<T:Config>{
         dna:[u8;128],
@@ -30,7 +31,7 @@ pub mod pallet {
         owner:AccountOf<T>,
     }
 
-    #[derive(Clone,Encode,Decode,PartialEq,RuntimeDebug,TypeInfo)]
+    #[derive(Clone,Encode,Decode,PartialEq,RuntimeDebug,TypeInfo,MaxEncodedLen)]
     #[scale_info(skip_type_params(T))]
     #[cfg_attr(feature="std", derive(Serialize,Deserialize))]
     pub enum Gender {
