@@ -4,7 +4,7 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
+	use frame_support::{dispatch::DispatchResult, ensure, pallet_prelude::*};
 	use frame_system::{ensure_signed, pallet_prelude::*};
 	use frame_support::{
 		sp_runtime::traits::Hash,
@@ -12,7 +12,7 @@ pub mod pallet {
 		transactional
 	};
 	use scale_info::TypeInfo;
-	use codec::{Encode, Decode, MaxEncodedLen};
+	use codec::{Decode, Encode, MaxEncodedLen};
 
 	#[cfg(feature = "std")]
 	use frame_support::serde::{Deserialize, Serialize};
@@ -24,11 +24,11 @@ pub mod pallet {
 
     #[derive(Clone,Encode,Decode,PartialEq,RuntimeDebug,TypeInfo,MaxEncodedLen)]
     #[scale_info(skip_type_params(T))]
-    pub struct Kitty<T:Config>{
+   	pub struct Kitty<Balance, Account>{
         dna:[u8;16],
-        price:Option<BalanceOf<T>>,
+        pub price:Option<Balance>,
         gender:Gender,
-        owner:AccountOf<T>,
+        owner:Account,
     }
 
     #[derive(Clone,Encode,Decode,PartialEq,RuntimeDebug,TypeInfo,MaxEncodedLen)]
@@ -49,7 +49,7 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
-	// #[pallet::generate_storage_info]
+	#[pallet::generate_storage_info]
 	pub struct Pallet<T>(_);
 
 	/// Configure the pallet by specifying the parameters and types it depends on.
@@ -70,26 +70,41 @@ pub mod pallet {
         type KittyRandomness:Randomness<Self::Hash,Self::BlockNumber>;
 
 		#[pallet::constant]
-		type MaxKittyOwened:Get<u32>;
+		type MaxKittyOwned:Get<u32>;
 	}
 
 	#[pallet::error]
 	pub enum Error<T> {
-		// TODO Part III
+		/// Handles arithemtic overflow when incrementing the Kitty counter.
 		KittyCntOverflow,
+		/// An account cannot own more Kitties than `MaxKittyCount`.
 		ExceedMaxKittyOwned,
+		/// Buyer cannot be the owner.
+		BuyerIsKittyOwner,
+		/// Cannot transfer a kitty to its owner.
+		TransferToSelf,
+		/// Handles checking whether the Kitty exists.
+		KittyNotExist,
+		/// Handles checking that the Kitty is owned by the account transferring, buying or setting a price for it.
+		NotKittyOwner,
+		/// Ensures the Kitty is for sale.
+		KittyNotForSale,
+		/// Ensures that the buying price is greater than the asking price.
+		KittyBidPriceTooLow,
+		/// Ensures that an account has enough funds to purchase a Kitty.
+		NotEnoughBalance,
 	}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// A new Kitty was sucessfully created. \[sender, kitty_id\]
+		/// A new Kitty was successfully created. \[sender, kitty_id\]
 		Created(T::AccountId,T::Hash),
-		/// Kitty price was sucessfully set. \[sender, kitty_id, new_price\]
+		/// Kitty price was successfully set. \[sender, kitty_id, new_price\]
 		PriceSet(T::AccountId,T::Hash,Option<BalanceOf<T>>),
-		/// A Kitty was sucessfully transferred. \[from, to, kitty_id\]
+		/// A Kitty was successfully transferred. \[from, to, kitty_id\]
 		Transfer(T::AccountId,T::AccountId,T::Hash),
-		/// A Kitty was sucessfully bought. \[buyer, seller, kitty_id, bid_price\]
+		/// A Kitty was successfully bought. \[buyer, seller, kitty_id, bid_price\]
 		Bought(T::AccountId,T::AccountId,T::Hash,BalanceOf<T>),
 	}
 
@@ -101,11 +116,11 @@ pub mod pallet {
 	// TODO Part II: Remaining storage items.
 	#[pallet::storage]
 	#[pallet::getter(fn kitties)]
-	pub(super) type Kitties<T:Config> = StorageMap<_,Twox64Concat,T::Hash,Kitty<T>>;
+	pub(super) type Kitties<T:Config> = StorageMap<_,Twox64Concat,T::Hash,Kitty<BalanceOf<T>,AccountOf<T>>>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn kitties_owned)]
-	pub(super) type OwnerKitties<T:Config> = StorageMap<_,Twox64Concat,T::AccountId,BoundedVec<T::Hash,T::MaxKittyOwened>,ValueQuery>;
+	pub(super) type OwnerKitties<T:Config> = StorageMap<_,Twox64Concat,T::AccountId,BoundedVec<T::Hash,T::MaxKittyOwned>,ValueQuery>;
 	/// Keeps track of what accounts own what Kitty.
 
 	// TODO Part III: Our pallet's genesis configuration.
@@ -122,6 +137,30 @@ pub mod pallet {
 		}
 
 		// TODO Part III: set_price
+		#[pallet::weight(1000)]
+		pub fn set_price(origin:OriginFor<T>,kitty_id:T::Hash,new_price:BalanceOf<T>)->DispatchResult{
+			let sender = ensure_signed(origin)?;
+			ensure!(Self::is_kitty_owner(&kitty_id,&sender)?,Error::<T>::NotKittyOwner);
+			let mut kitty = Self::kitties(&kitty_id).unwrap();
+			kitty.price = Some(new_price.clone());
+			<Kitties<T>>::insert(kitty_id,kitty);
+			Self::deposit_event(<Event<T>>::PriceSet(sender,kitty_id,Some(new_price)));
+			Ok(())
+		}
+
+		#[pallet::weight(1000)]
+		pub fn transfer(origin:OriginFor<T>,to:T::AccountId,kitty_id:T::Hash)->DispatchResult{
+			let from = ensure_signed(origin)?;
+
+			// Ensure the kitty exists and is called by the kitty owner
+			ensure!(Self::is_kitty_owner(&kitty_id, &from)?, <Error<T>>::NotKittyOwner);
+			ensure!(from != to,Error::<T>::BuyerIsKittyOwner);
+			// Verify the recipient has the capacity to receive one more kitty
+			let to_owen = Self::kitties_owned(&to);
+			ensure!((to_owen.len() as u32) < T::MaxKittyOwned::get(),Error::<T>::KittyCntOverflow);
+			Self::transfer_kitty_to(&kitty_id, &to)?;
+			Ok(())
+		}
 
 		// TODO Part III: transfer
 
@@ -153,9 +192,21 @@ pub mod pallet {
 			payload.using_encoded(blake2_128)
 		}
 
-        // TODO Part III: mint
+		pub fn is_kitty_owner(kitty_id:&T::Hash,acct:&T::AccountId)->Result<bool,Error<T>>{
+			match Self::kitties(kitty_id){
+				Some(kitty)=>Ok(kitty.owner == *acct),
+				None=>Err(<Error<T>>::KittyNotExist),
+			}
+		}
+
+		#[transactional]
+		pub fn transfer_kitty_to(kitty_id:&T::Hash,to:&T::AccountId)->Result((),Error<T>){
+			Ok(())
+		}
+
+		#[transactional]
 		pub fn mint(owner:&T::AccountId,dna:Option<[u8;16]>,gender:Option<Gender>)->Result<T::Hash,Error<T>>{
-			let kitty = Kitty::<T>{
+			let kitty = Kitty::<BalanceOf<T>,AccountOf<T>>{
 				dna:dna.unwrap_or_else(Self::gen_dna),
 				price: None,
 				gender:gender.unwrap_or_else(Self::gen_gender),
@@ -168,6 +219,7 @@ pub mod pallet {
 			).map_err(|_|Error::<T>::ExceedMaxKittyOwned)?;
 			<Kitties<T>>::insert(kitty_id,kitty);
 			<KittyCnt<T>>::put(new_cnt);
+			Self::deposit_event(Event::<T>::Created(owner.clone(),kitty_id));
 			Ok(kitty_id)
 		}
 
