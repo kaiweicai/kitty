@@ -16,7 +16,7 @@ pub mod pallet {
 
 	#[cfg(feature = "std")]
 	use frame_support::serde::{Deserialize, Serialize};
-	use sp_core::blake2_128;
+use sp_io::hashing::blake2_128;
 
     type AccountOf<T> = <T as frame_system::Config>::AccountId;
     type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -38,6 +38,12 @@ pub mod pallet {
         Male,
         Female,
     }
+
+	impl Default for Gender{
+		fn default() -> Self {
+			Gender::Male
+		}
+	}
 
 	// TODO Part II: Enum and implementation to handle Gender type in Kitty struct.
 
