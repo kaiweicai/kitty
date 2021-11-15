@@ -4,8 +4,8 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::pallet_prelude::*;
-	use frame_system::pallet_prelude::*;
+	use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
+	use frame_system::{ensure_signed, pallet_prelude::*};
 	use frame_support::{
 		sp_runtime::traits::Hash,
 		traits::{ Randomness, Currency, tokens::ExistenceRequirement },
@@ -16,16 +16,16 @@ pub mod pallet {
 
 	#[cfg(feature = "std")]
 	use frame_support::serde::{Deserialize, Serialize};
-use sp_io::hashing::blake2_128;
+	use sp_io::hashing::blake2_128;
 
     type AccountOf<T> = <T as frame_system::Config>::AccountId;
     type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 	// TODO Part II: Struct for holding Kitty information.
-    
+
     #[derive(Clone,Encode,Decode,PartialEq,RuntimeDebug,TypeInfo,MaxEncodedLen)]
     #[scale_info(skip_type_params(T))]
     pub struct Kitty<T:Config>{
-        dna:[u8;128],
+        dna:[u8;16],
         price:Option<BalanceOf<T>>,
         gender:Gender,
         owner:AccountOf<T>,
@@ -49,7 +49,7 @@ use sp_io::hashing::blake2_128;
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
-	#[pallet::generate_storage_info]
+	// #[pallet::generate_storage_info]
 	pub struct Pallet<T>(_);
 
 	/// Configure the pallet by specifying the parameters and types it depends on.
@@ -76,12 +76,21 @@ use sp_io::hashing::blake2_128;
 	#[pallet::error]
 	pub enum Error<T> {
 		// TODO Part III
+		KittyCntOverflow,
+		ExceedMaxKittyOwned,
 	}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		// TODO Part III
+		/// A new Kitty was sucessfully created. \[sender, kitty_id\]
+		Created(T::AccountId,T::Hash),
+		/// Kitty price was sucessfully set. \[sender, kitty_id, new_price\]
+		PriceSet(T::AccountId,T::Hash,Option<BalanceOf<T>>),
+		/// A Kitty was sucessfully transferred. \[from, to, kitty_id\]
+		Transfer(T::AccountId,T::AccountId,T::Hash),
+		/// A Kitty was sucessfully bought. \[buyer, seller, kitty_id, bid_price\]
+		Bought(T::AccountId,T::AccountId,T::Hash,BalanceOf<T>),
 	}
 
 	// ACTION: Storage item to keep a count of all existing Kitties.
@@ -104,6 +113,13 @@ use sp_io::hashing::blake2_128;
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		// TODO Part III: create_kitty
+		#[pallet::weight(1000)]
+		pub fn create_kitty(origin:OriginFor<T>)->DispatchResult{
+			let sender = ensure_signed(origin)?;
+			let kitty_id = Self::mint(&sender,None,None)?;
+			log::info!("A kitty is born with ID: {:?}.",kitty_id);
+			Ok(())
+		}
 
 		// TODO Part III: set_price
 
@@ -138,6 +154,22 @@ use sp_io::hashing::blake2_128;
 		}
 
         // TODO Part III: mint
+		pub fn mint(owner:&T::AccountId,dna:Option<[u8;16]>,gender:Option<Gender>)->Result<T::Hash,Error<T>>{
+			let kitty = Kitty::<T>{
+				dna:dna.unwrap_or_else(Self::gen_dna),
+				price: None,
+				gender:gender.unwrap_or_else(Self::gen_gender),
+				owner:owner.clone()
+			};
+			let kitty_id = T::Hashing::hash_of(&kitty);
+			let new_cnt = Self::kitty_cnt().checked_add(1).ok_or(<Error<T>>::KittyCntOverflow)?;
+			<OwnerKitties<T>>::try_mutate(&owner,|kitty_vec|
+				kitty_vec.try_push(kitty_id)
+			).map_err(|_|Error::<T>::ExceedMaxKittyOwned)?;
+			<Kitties<T>>::insert(kitty_id,kitty);
+			<KittyCnt<T>>::put(new_cnt);
+			Ok(kitty_id)
+		}
 
         // TODO Part IV: transfer_kitty_to
     }
