@@ -128,7 +128,7 @@ fn testnet_genesis(
 	endowed_accounts: Vec<AccountId>,
 	_enable_println: bool,
 ) -> GenesisConfig {
-	let alice = (&endowed_accounts)[1].clone();
+	let alice = (&endowed_accounts)[0].clone();
 	GenesisConfig {
 		system: SystemConfig {
 			// Add Wasm runtime to storage.

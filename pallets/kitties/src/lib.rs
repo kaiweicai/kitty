@@ -140,10 +140,11 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T:Config> GenesisBuild<T> for GenesisConfig<T>{
 		fn build(&self) {
+			log::info!("account id is-------------:{:?}",&self.kitties);
 			// When building a kitty from genesis config, we require the dna and gender to be supplied.
 			for (acct, dna, gender) in &self.kitties {
-				let _ = <Pallet<T>>::mint(acct, Some(dna.clone()), None);
-				// let _ = <Pallet<T>>::mint(acct, Some(dna.clone()), Some(gender.clone()));
+				// let _ = <Pallet<T>>::mint(acct, Some(dna.clone()), None);
+				let _ = <Pallet<T>>::genesis_mint(acct, Some(dna.clone()), Some(gender.clone()));
 			}
 		}
 	}
@@ -295,6 +296,28 @@ pub mod pallet {
 				gender:gender.unwrap_or_else(Self::gen_gender),
 				owner:owner.clone()
 			};
+			// log::info!("kitty is-------------:{:?}",&kitty);
+			let kitty_id = T::Hashing::hash_of(&kitty);
+			let new_cnt = Self::kitty_cnt().checked_add(1).ok_or(<Error<T>>::KittyCntOverflow)?;
+			<OwnerKitties<T>>::try_mutate(&owner,|kitty_vec|
+				kitty_vec.try_push(kitty_id)
+			).map_err(|_|Error::<T>::ExceedMaxKittyOwned)?;
+			<Kitties<T>>::insert(kitty_id,kitty);
+			// if 1==1 {
+			// 	return Err(<Error<T>>::KittyCntOverflow);
+			// }
+			<KittyCnt<T>>::put(new_cnt);
+			Self::deposit_event(Event::<T>::Created(owner.clone(),kitty_id));
+			Ok(kitty_id)
+		}
+
+		pub fn genesis_mint(owner:&T::AccountId,dna:Option<[u8;16]>,gender:Option<Gender>)->Result<T::Hash,Error<T>>{
+			let kitty = Kitty::<BalanceOf<T>,AccountOf<T>>{
+				dna:dna.unwrap_or_else(Self::gen_dna),
+				price: None,
+				gender:gender.unwrap_or_else(Self::gen_gender),
+				owner:owner.clone()
+			};
 			let kitty_id = T::Hashing::hash_of(&kitty);
 			let new_cnt = Self::kitty_cnt().checked_add(1).ok_or(<Error<T>>::KittyCntOverflow)?;
 			<OwnerKitties<T>>::try_mutate(&owner,|kitty_vec|
@@ -302,7 +325,6 @@ pub mod pallet {
 			).map_err(|_|Error::<T>::ExceedMaxKittyOwned)?;
 			<Kitties<T>>::insert(kitty_id,kitty);
 			<KittyCnt<T>>::put(new_cnt);
-			Self::deposit_event(Event::<T>::Created(owner.clone(),kitty_id));
 			Ok(kitty_id)
 		}
     }
